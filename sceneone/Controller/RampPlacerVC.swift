@@ -13,6 +13,15 @@ import ARKit
 class RampPlacerVC: UIViewController, ARSCNViewDelegate, UIPopoverPresentationControllerDelegate {
 
     @IBOutlet var sceneView: ARSCNView!
+    @IBOutlet weak var controls: UIStackView!
+    @IBOutlet weak var btnRotate: UIButton!
+    @IBOutlet weak var btnDown: UIButton!
+    @IBOutlet weak var btnUp: UIButton!
+    
+    
+    var selectedRampName: String?
+    var selectedRamp: SCNNode?
+    
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -21,13 +30,25 @@ class RampPlacerVC: UIViewController, ARSCNViewDelegate, UIPopoverPresentationCo
         sceneView.delegate = self
         
         // Show statistics such as fps and timing information
-        sceneView.showsStatistics = true
+        sceneView.showsStatistics = false //true
         
         // Create a new scene
-        let scene = SCNScene(named: "art.scnassets/pipe.dae")!
+        let scene = SCNScene(named: "\(SCENE_ASSETS_DIRECTORY)mainScene.scn")!
+        self.sceneView.autoenablesDefaultLighting = true
         
         // Set the scene to the view
         sceneView.scene = scene
+        
+        // Gestures for long pressed buttons
+        let gesture1 = UILongPressGestureRecognizer(target: self, action: #selector(onLongPress(gesture:)))
+        let gesture2 = UILongPressGestureRecognizer(target: self, action: #selector(onLongPress(gesture:)))
+        let gesture3 = UILongPressGestureRecognizer(target: self, action: #selector(onLongPress(gesture:)))
+        gesture1.minimumPressDuration = 0.1
+        gesture2.minimumPressDuration = 0.1
+        gesture3.minimumPressDuration = 0.1
+        self.btnRotate.addGestureRecognizer(gesture1)
+        self.btnUp.addGestureRecognizer(gesture2)
+        self.btnDown.addGestureRecognizer(gesture3)
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -51,6 +72,40 @@ class RampPlacerVC: UIViewController, ARSCNViewDelegate, UIPopoverPresentationCo
         super.didReceiveMemoryWarning()
         // Release any cached data, images, etc that aren't in use.
     }
+    
+    @objc
+    func onLongPress(gesture: UILongPressGestureRecognizer)
+    {
+        if let ramp = self.selectedRamp
+        {
+            if gesture.state == .ended
+            {
+                ramp.removeAllActions()
+            }
+            else if gesture.state == .began
+            {
+                if gesture.view === self.btnRotate
+                {
+                    let rotate = SCNAction.repeatForever(SCNAction.rotateBy(x: 0, y: CGFloat(0.08 * Double.pi), z: 0, duration: 0.1))
+                    ramp.runAction(rotate)
+                }
+                else if gesture.view === self.btnUp
+                {
+                    let move = SCNAction.repeatForever(SCNAction.moveBy(x: 0, y: 0.08, z: 0, duration: 0.1))
+                    ramp.runAction(move)
+                }
+                else if gesture.view === self.btnDown
+                {
+                    let move = SCNAction.repeatForever(SCNAction.moveBy(x: 0, y: -0.08, z: 0, duration: 0.1))
+                    ramp.runAction(move)
+                }
+                else
+                {
+                    print("ERROR: RampPlacerVC.onLongPress: gesture's view is not one of the 3 supported buttons!")
+                }
+            }
+        }
+    }
 
     // MARK: - ARSCNViewDelegate
     
@@ -62,6 +117,8 @@ class RampPlacerVC: UIViewController, ARSCNViewDelegate, UIPopoverPresentationCo
         return node
     }
 */
+    
+
     
     func session(_ session: ARSession, didFailWithError error: Error) {
         // Present an error message to the user
@@ -77,13 +134,46 @@ class RampPlacerVC: UIViewController, ARSCNViewDelegate, UIPopoverPresentationCo
         // Reset tracking and/or remove existing anchors if consistent tracking is required
         
     }
+    // Touching the AR Scene
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let touch = touches.first else {return}
+        let touchPosition = touch.location(in: self.sceneView)
+        
+        // First check if a scene kit object was selected
+        let sceneHitResults = sceneView.hitTest(touchPosition, options: [:])     // Ray collison test with stuff in the scene
+        
+        // If a virtual object was touched
+        if sceneHitResults.count > 0
+        {
+            let node = sceneHitResults[0].node
+            self.selectedRampName = nil
+            self.selectedRamp = node    // Hopefully the node was a ramp of some kind
+            self.controls.isHidden = false
+        }
+        else // If the real world was touched instead
+        {
+            // Checking AR real-world anchors
+            
+            let realWorldHitResults = self.sceneView.hitTest(touchPosition, types: [.featurePoint])
+            
+            guard let hitFeature = realWorldHitResults.last else {return}
+            
+            // Get position in world space for where touch hits the scene world
+            let hitTransformMatrix = SCNMatrix4(hitFeature.worldTransform)
+            let hitPosition = SCNVector3Make(hitTransformMatrix.m41, hitTransformMatrix.m42, hitTransformMatrix.m43)
+            
+            self.placeRamp(position: hitPosition)
+        }
+        
+    }
     
     func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle {
         return .none // if you don't return .non then it'll go full screen
     }
     
     @IBAction func onRampBtnPressed(_ sender: UIButton) {
-        let rampPickerVC = RampPickerVC(size: CGSize(width: 250, height: 500))
+        let rampPickerVC = RampPickerVC(withSize: CGSize(width: 250, height: 500))
+        rampPickerVC.rampPlacerVC = self
         rampPickerVC.modalPresentationStyle = .popover
         rampPickerVC.popoverPresentationController?.delegate = self
         present(rampPickerVC, animated: true, completion: nil)
@@ -91,6 +181,36 @@ class RampPlacerVC: UIViewController, ARSCNViewDelegate, UIPopoverPresentationCo
         rampPickerVC.popoverPresentationController?.sourceRect = sender.bounds
     }
     
+    func onRampSelected(_ rampName: String) {
+        self.selectedRampName = rampName
+    }
+    
+    func placeRamp(position: SCNVector3)
+    {
+        if let rampName = self.selectedRampName
+        {
+            let ramp = RampUtility.getRamp(withName: rampName, scale: 0.01, andPosition: position)
+            self.selectedRamp = ramp
+            self.sceneView.scene.rootNode.addChildNode(ramp)
+            self.controls.isHidden = false
+            self.selectedRampName = nil // Prevent making more ramps on accident
+        }
+        else
+        {
+            self.controls.isHidden = true
+        }
+        
+    }
+    
+    @IBAction func onRemovePressed(_ sender: Any) {
+            if let ramp = self.selectedRamp
+            {
+                ramp.removeFromParentNode()
+                self.selectedRamp = nil
+                self.selectedRampName = nil
+                self.controls.isHidden = true
+            }
+    }
     
     
 }
