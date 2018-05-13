@@ -15,7 +15,7 @@ class RampPickerVC: UIViewController {
     var size: CGSize!
     
     
-    init(withSize size: CGSize) { // custom initializer, so when the ramplacer shows the popover, we can pass in a size
+    init(size: CGSize) { // custom initializer, so when the ramplacer shows the popover, we can pass in a size
         super.init(nibName: nil, bundle: nil)
         self.size = size
     }
@@ -31,7 +31,22 @@ class RampPickerVC: UIViewController {
         sceneView = SCNView(frame: CGRect(x: 0, y: 0, width: size.width, height: size.height))
         view.insertSubview(sceneView, at: 0)
         
+        let scene = SCNScene(named: "art.scnassets/ramps.scn")! // This loads the ramps.scn scene for us, for unwrap it to make sure it's there because it has to exist in the app
+        sceneView.scene = scene // to show it in our scene
+        
+        let camera = SCNCamera()
+        camera.usesOrthographicProjection = true
+        scene.rootNode.camera = camera
+        
+        let obj = SCNScene(named: "art.scnassets/pipe.dae")// We created a scene, pipe scene
+        let node = obj?.rootNode.childNode(withName: "pipe", recursively: true)! //Whenever we move the .dae scene we move ALL of it, e.g. Background/objects etc. every scene has a rootnode, then we look for a childnode named "pipe" the item we referenced.
+        node?.scale = SCNVector3Make(0.0022, 0.0022, 0.0022)
+        node?.position = SCNVector3Make(-0.95, 0.5, -1)
+        
+        scene.rootNode.addChildNode(node!) // we take that node and add it to our scene
         preferredContentSize = size
+        
+        
 
     }
 
